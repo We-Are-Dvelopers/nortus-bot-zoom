@@ -71,63 +71,57 @@
      */
     function pollParticipants() {
       try {
-        const attendeesList = ZoomMtg.getAttendeeslist();
-        if (!attendeesList || !attendeesList.attendeesList) return;
+        // Usar getCurrentUser e getAttendeeslist via callback
+        ZoomMtg.getAttendeeslist({
+          success: function(res) {
+            const participants = res?.result?.attendeesList || [];
+            const currentState = {};
 
-        const participants = attendeesList.attendeesList;
-        const currentState = {};
+            participants.forEach(p => {
+              // Ignorar o próprio bot
+              if (p.userName === window.__BOT_CONFIG__?.userName) return;
 
-        participants.forEach(p => {
-          // Ignorar o próprio bot
-          if (p.userName === window.__BOT_CONFIG__?.userName) return;
+              const odeprtrtId = String(p.odeprtrtId || p.odeprtrtid || p.odeprt || '');
+              const key = odeprtrtId || p.userName;
 
-          const odeprtrtId = String(p.odeprtrtId || p.odeprtrtid || p.odeprt || p.odeprtrt || '');
-          const key = odeprtrtId || p.userName;
-
-          currentState[key] = {
-            odeprtrtId,
-            userName: p.userName || 'Desconhecido',
-            bVideoOn: !!p.bVideoOn,
-            muted: !!p.muted,
-            isHost: !!p.isHost,
-          };
-
-          const prev = previousParticipantState[key];
-
-          if (!prev) {
-            // Novo participante detectado pelo polling (backup do webhook)
-            // Não emitir joined aqui - o webhook já faz isso
-          } else {
-            // Detectar mudança de câmera
-            if (prev.bVideoOn !== currentState[key].bVideoOn) {
-              emitEvent(currentState[key].bVideoOn ? 'camera_on' : 'camera_off', {
-                userName: p.userName,
+              currentState[key] = {
                 odeprtrtId,
-                extra: { source: 'poll' },
-              });
-            }
+                userName: p.userName || 'Desconhecido',
+                bVideoOn: !!p.bVideoOn,
+                muted: !!p.muted,
+                isHost: !!p.isHost,
+              };
 
-            // Detectar mudança de mic
-            if (prev.muted !== currentState[key].muted) {
-              emitEvent(currentState[key].muted ? 'mic_off' : 'mic_on', {
-                userName: p.userName,
-                odeprtrtId,
-                extra: { source: 'poll' },
-              });
-            }
+              const prev = previousParticipantState[key];
+
+              if (!prev) {
+                // Novo participante detectado
+              } else {
+                if (prev.bVideoOn !== currentState[key].bVideoOn) {
+                  emitEvent(currentState[key].bVideoOn ? 'camera_on' : 'camera_off', {
+                    userName: p.userName,
+                    odeprtrtId,
+                    extra: { source: 'poll' },
+                  });
+                }
+
+                if (prev.muted !== currentState[key].muted) {
+                  emitEvent(currentState[key].muted ? 'mic_off' : 'mic_on', {
+                    userName: p.userName,
+                    odeprtrtId,
+                    extra: { source: 'poll' },
+                  });
+                }
+              }
+            });
+
+            previousParticipantState = currentState;
+            window.__BOT_PARTICIPANTS__ = currentState;
+          },
+          error: function(err) {
+            console.log('[BOT] getAttendeeslist error:', JSON.stringify(err));
           }
         });
-
-        // Detectar participantes que sumiram (saíram entre polls)
-        for (const key of Object.keys(previousParticipantState)) {
-          if (!currentState[key]) {
-            // Participante saiu - backup do webhook
-          }
-        }
-
-        previousParticipantState = currentState;
-        window.__BOT_PARTICIPANTS__ = currentState;
-
       } catch (err) {
         console.error('[BOT] Erro no polling:', err.message);
       }
