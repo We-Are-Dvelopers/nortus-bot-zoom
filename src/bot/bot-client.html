@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zoom Presence Bot</title>
+  <!-- Zoom Meeting SDK CSS -->
+  <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/bootstrap.css" />
+  <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/react-select.css" />
+  <style>
+    /* Esconder toda UI do Zoom - bot é headless */
+    body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    #zmmtg-root { display: none !important; }
+    .meeting-app { display: none !important; }
+    #status {
+      color: #0f0; font-family: monospace; font-size: 12px;
+      padding: 10px; position: fixed; top: 0; left: 0; z-index: 99999;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Bot initializing...</div>
+
+  <!-- Zoom Meeting SDK JS -->
+  <script src="https://source.zoom.us/3.11.2/lib/vendor/react.min.js"></script>
+  <script src="https://source.zoom.us/3.11.2/lib/vendor/react-dom.min.js"></script>
+  <script src="https://source.zoom.us/3.11.2/lib/vendor/redux.min.js"></script>
+  <script src="https://source.zoom.us/3.11.2/lib/vendor/redux-thunk.min.js"></script>
+  <script src="https://source.zoom.us/3.11.2/lib/vendor/lodash.min.js"></script>
+  <script src="https://source.zoom.us/zoom-meeting-3.11.2.min.js"></script>
+
+  <script>
+    /**
+     * BOT CLIENT - Roda dentro do Puppeteer headless.
+     *
+     * Fluxo:
+     * 1. Puppeteer injeta config via window.__BOT_CONFIG__
+     * 2. Bot inicializa o Zoom Meeting SDK
+     * 3. Entra na reunião como attendee (role=0)
+     * 4. Faz polling do estado dos participantes (câmera, mic)
+     * 5. Emite eventos via window.__BOT_EVENTS__ (lido pelo Puppeteer)
+     */
+
+    const STATUS_EL = document.getElementById('status');
+    function log(msg) {
+      STATUS_EL.textContent = msg;
+      console.log('[BOT]', msg);
+    }
+
+    // Buffer de eventos - Puppeteer lê e limpa periodicamente
+    window.__BOT_EVENTS__ = [];
+    window.__BOT_STATUS__ = 'initializing';
+    window.__BOT_PARTICIPANTS__ = {};
+
+    function emitEvent(eventType, participantData = {}) {
+      const event = {
+        event_type: eventType,
+        timestamp: new Date().toISOString(),
+        meeting_id: window.__BOT_CONFIG__?.meetingNumber || '',
+        user_name: participantData.userName || '',
+        user_email: participantData.userEmail || '',
+        participant_id: participantData.odeprtrtId || participantData.odeprtrtid || '',
+        extra: participantData.extra || null,
+      };
+      window.__BOT_EVENTS__.push(event);
+    }
+
+    // Estado anterior dos participantes (para detectar mudanças)
+    let previousParticipantState = {};
+
+    /**
+     * Polling: verifica o estado de cada participante e emite eventos de mudança.
+     */
+    function pollParticipants() {
+      try {
+        const attendeesList = ZoomMtg.getAttendeeslist();
+        if (!attendeesList || !attendeesList.attendeesList) return;
+
+        const participants = attendeesList.attendeesList;
+        const currentState = {};
+
+        participants.forEach(p => {
+          // Ignorar o próprio bot
+          if (p.userName === window.__BOT_CONFIG__?.userName) return;
+
+          const odeprtrtId = String(p.odeprtrtId || p.odeprtrtid || p.odeprt || p.odeprtrt || '');
+          const key = odeprtrtId || p.userName;
+
+          currentState[key] = {
+            odeprtrtId,
+            userName: p.userName || 'Desconhecido',
+            bVideoOn: !!p.bVideoOn,
+            muted: !!p.muted,
+            isHost: !!p.isHost,
+          };
+
+          const prev = previousParticipantState[key];
+
+          if (!prev) {
+            // Novo participante detectado pelo polling (backup do webhook)
+            // Não emitir joined aqui - o webhook já faz isso
+          } else {
+            // Detectar mudança de câmera
+            if (prev.bVideoOn !== currentState[key].bVideoOn) {
+              emitEvent(currentState[key].bVideoOn ? 'camera_on' : 'camera_off', {
+                userName: p.userName,
+                odeprtrtId,
+                extra: { source: 'poll' },
+              });
+            }
+
+            // Detectar mudança de mic
+            if (prev.muted !== currentState[key].muted) {
+              emitEvent(currentState[key].muted ? 'mic_off' : 'mic_on', {
+                userName: p.userName,
+                odeprtrtId,
+                extra: { source: 'poll' },
+              });
+            }
+          }
+        });
+
+        // Detectar participantes que sumiram (saíram entre polls)
+        for (const key of Object.keys(previousParticipantState)) {
+          if (!currentState[key]) {
+            // Participante saiu - backup do webhook
+          }
+        }
+
+        previousParticipantState = currentState;
+        window.__BOT_PARTICIPANTS__ = currentState;
+
+      } catch (err) {
+        console.error('[BOT] Erro no polling:', err.message);
+      }
+    }
+
+    /**
+     * Inicializa o SDK e entra na reunião.
+     */
+    async function initBot() {
+      // Esperar config ser injetada pelo Puppeteer
+      let attempts = 0;
+      while (!window.__BOT_CONFIG__ && attempts < 30) {
+        await new Promise(r => setTimeout(r, 500));
+        attempts++;
+      }
+
+      const config = window.__BOT_CONFIG__;
+      if (!config) {
+        log('ERROR: Config não recebida após 15s');
+        window.__BOT_STATUS__ = 'error';
+        return;
+      }
+
+      log(`Inicializando SDK para meeting ${config.meetingNumber}...`);
+
+      ZoomMtg.setZoomJSLib('https://source.zoom.us/3.11.2/lib', '/av');
+      ZoomMtg.preLoadWasm();
+      ZoomMtg.prepareWebSDK();
+
+      // Desabilitar logs do SDK no console
+      ZoomMtg.i18n.load('pt-PT');
+      ZoomMtg.i18n.reload('pt-PT');
+
+      ZoomMtg.init({
+        leaveUrl: 'about:blank',
+        isSupportAV: true,
+        disableInvite: true,
+        disableRecord: true,
+        disableJoinAudio: false,
+        audioPanelAlwaysOpen: false,
+        showMeetingHeader: false,
+        disableVoIP: false,
+        disableReport: true,
+        screenShare: false,
+        videoDrag: false,
+        sharingMode: 'fit',
+        videoHeader: false,
+        isLockBottom: false,
+        isSupportChat: false,
+        isSupportQA: false,
+        isSupportPolling: false,
+        isSupportBreakout: false,
+        isSupportCC: false,
+        success: () => {
+          log('SDK inicializado. Entrando na reunião...');
+
+          ZoomMtg.join({
+            meetingNumber: config.meetingNumber,
+            userName: config.userName,
+            signature: config.signature,
+            sdkKey: config.sdkKey,
+            userEmail: config.userEmail || '',
+            passWord: config.password || '',
+            success: () => {
+              log(`Conectado à reunião ${config.meetingNumber}`);
+              window.__BOT_STATUS__ = 'connected';
+
+              // Emitir evento de meeting_started (do ponto de vista do bot)
+              emitEvent('meeting_started', {
+                extra: { bot_joined: true },
+              });
+
+              // Mutar mic e desligar câmera do bot
+              try {
+                ZoomMtg.mute({ mute: true });
+                ZoomMtg.muteVideo({ mute: true });
+              } catch (e) { /* ignore */ }
+
+              // Iniciar polling de participantes
+              const pollInterval = config.pollIntervalMs || 5000;
+              setInterval(pollParticipants, pollInterval);
+
+              // Primeiro poll após 3 segundos (dar tempo da lista carregar)
+              setTimeout(pollParticipants, 3000);
+            },
+            error: (err) => {
+              log(`Erro ao entrar na reunião: ${JSON.stringify(err)}`);
+              window.__BOT_STATUS__ = 'error';
+            },
+          });
+        },
+        error: (err) => {
+          log(`Erro ao inicializar SDK: ${JSON.stringify(err)}`);
+          window.__BOT_STATUS__ = 'error';
+        },
+      });
+
+      // Listener: reunião encerrada pelo host
+      ZoomMtg.inMeetingServiceListener('onMeetingStatus', (data) => {
+        if (data.meetingStatus === 3) { // ended
+          log('Reunião encerrada pelo host');
+          emitEvent('meeting_ended', { extra: { reason: 'host_ended' } });
+          window.__BOT_STATUS__ = 'meeting_ended';
+        }
+      });
+
+      // Listener: user joined/left (evento nativo do SDK)
+      ZoomMtg.inMeetingServiceListener('onUserJoin', (data) => {
+        if (data && data.userName !== config.userName) {
+          emitEvent('joined', {
+            userName: data.userName,
+            odeprtrtId: data.odeprtrtId,
+            extra: { source: 'sdk_event' },
+          });
+        }
+      });
+
+      ZoomMtg.inMeetingServiceListener('onUserLeave', (data) => {
+        if (data && data.userName !== config.userName) {
+          emitEvent('left', {
+            userName: data.userName,
+            odeprtrtId: data.odeprtrtId,
+            extra: { source: 'sdk_event' },
+          });
+        }
+      });
+
+      // Listener: user updated (áudio/vídeo change)
+      ZoomMtg.inMeetingServiceListener('onUserIsInWaitingRoom', (data) => {
+        console.log('[BOT] User in waiting room:', data);
+      });
+    }
+
+    // Iniciar
+    initBot().catch(err => {
+      log(`Erro fatal: ${err.message}`);
+      window.__BOT_STATUS__ = 'error';
+    });
+  </script>
+</body>
+</html>

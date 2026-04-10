@@ -1,0 +1,22 @@
+{
+  "name": "zoom-presence-bot",
+  "version": "1.0.0",
+  "description": "Bot monitor de presença para reuniões Zoom - monitora câmera, mic e presença dos participantes",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@zoom/meetingsdk": "3.11.2",
+    "express": "^4.21.0",
+    "puppeteer": "^23.0.0",
+    "node-fetch": "^2.7.0",
+    "dotenv": "^16.4.0",
+    "jsonwebtoken": "^9.0.0",
+    "winston": "^3.14.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
