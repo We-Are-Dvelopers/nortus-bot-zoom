@@ -21,7 +21,13 @@ function ensureLocalServer() {
     const htmlContent = fs.readFileSync(botHtmlPath, 'utf-8');
 
     localServer = http.createServer((req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
+      // Headers COOP/COEP para habilitar SharedArrayBuffer
+      // Necessário para o SDK renderizar vídeo dos participantes
+      res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      });
       res.end(htmlContent);
     });
 
