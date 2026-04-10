@@ -71,49 +71,83 @@
      */
     function pollParticipants() {
       try {
-        // Usar getCurrentUser e getAttendeeslist via callback
+        // Abordagem 1: getAttendeeslist para lista de participantes
         ZoomMtg.getAttendeeslist({
           success: function(res) {
             const participants = res?.result?.attendeesList || [];
             const currentState = {};
 
             participants.forEach(p => {
-              // Ignorar o próprio bot
               if (p.userName === window.__BOT_CONFIG__?.userName) return;
-
-              const odeprtrtId = String(p.odeprtrtId || p.odeprtrtid || p.odeprt || '');
-              const key = odeprtrtId || p.userName;
-
+              const key = p.userName;
               currentState[key] = {
-                odeprtrtId,
+                odeprtrtId: String(p.odeprtrtId || p.odeprtrtid || ''),
                 userName: p.userName || 'Desconhecido',
-                bVideoOn: !!p.bVideoOn,
+                bVideoOn: false, // será atualizado pelo DOM scan
                 muted: !!p.muted,
                 isHost: !!p.isHost,
               };
+            });
 
+            // Abordagem 2: Escanear o DOM para detectar quem tem vídeo ativo
+            // O SDK renderiza tiles de vídeo com canvas/video elements
+            const videoTiles = document.querySelectorAll('.video-avatar, .video-cell, [class*="video-canvas"]');
+            const namesWithVideo = new Set();
+
+            videoTiles.forEach(tile => {
+              // Procurar o nome do participante dentro do tile
+              const nameEl = tile.querySelector('.video-avatar__avatar-name, .video-cell__user-name, [class*="user-name"]');
+              const name = nameEl?.textContent?.trim();
+              // Verificar se tem canvas/video ativo (não apenas avatar)
+              const hasActiveVideo = tile.querySelector('canvas, video') !== null;
+              const avatarOnly = tile.querySelector('.video-avatar__avatar-default, .video-avatar__avatar-img');
+
+              if (name && hasActiveVideo && !avatarOnly) {
+                namesWithVideo.add(name);
+              }
+            });
+
+            // Alternativa: verificar pela lista de participantes no painel lateral
+            document.querySelectorAll('.participants-item, .participants-li, [class*="participant-item"]').forEach(item => {
+              const nameEl = item.querySelector('.participants-item__name, [class*="participant-name"]');
+              const name = nameEl?.textContent?.trim();
+              // Ícone de vídeo desligado = câmera off
+              const videoOff = item.querySelector('.video-off-icon, [class*="video-off"], .icon-video-off');
+              const videoOn = item.querySelector('.video-on-icon, [class*="video-on"], .icon-video-on');
+
+              if (name) {
+                if (videoOn && !videoOff) namesWithVideo.add(name);
+              }
+            });
+
+            // Atualizar estado com info do DOM
+            for (const key in currentState) {
+              currentState[key].bVideoOn = namesWithVideo.has(key);
+            }
+
+            // Detectar mudanças e emitir eventos
+            for (const key in currentState) {
               const prev = previousParticipantState[key];
+              const curr = currentState[key];
 
-              if (!prev) {
-                // Novo participante detectado
-              } else {
-                if (prev.bVideoOn !== currentState[key].bVideoOn) {
-                  emitEvent(currentState[key].bVideoOn ? 'camera_on' : 'camera_off', {
-                    userName: p.userName,
-                    odeprtrtId,
-                    extra: { source: 'poll' },
+              if (prev) {
+                if (prev.bVideoOn !== curr.bVideoOn) {
+                  emitEvent(curr.bVideoOn ? 'camera_on' : 'camera_off', {
+                    userName: curr.userName,
+                    odeprtrtId: curr.odeprtrtId,
+                    extra: { source: 'dom_poll' },
                   });
+                  console.log('[BOT] Camera change detected:', curr.userName, curr.bVideoOn ? 'ON' : 'OFF');
                 }
-
-                if (prev.muted !== currentState[key].muted) {
-                  emitEvent(currentState[key].muted ? 'mic_off' : 'mic_on', {
-                    userName: p.userName,
-                    odeprtrtId,
+                if (prev.muted !== curr.muted) {
+                  emitEvent(curr.muted ? 'mic_off' : 'mic_on', {
+                    userName: curr.userName,
+                    odeprtrtId: curr.odeprtrtId,
                     extra: { source: 'poll' },
                   });
                 }
               }
-            });
+            }
 
             previousParticipantState = currentState;
             window.__BOT_PARTICIPANTS__ = currentState;
