@@ -177,17 +177,37 @@
             tk: '',
             zak: '',
             success: (res) => {
-              log(`Conectado à reunião ${config.meetingNumber} - ${JSON.stringify(res)}`);
+              log(`Conectado à reunião ${config.meetingNumber}`);
               window.__BOT_STATUS__ = 'connected';
 
               emitEvent('meeting_started', {
                 extra: { bot_joined: true },
               });
 
-              try {
-                ZoomMtg.mute({ mute: true });
-                ZoomMtg.muteVideo({ mute: true });
-              } catch (e) { /* ignore */ }
+              // Mutar áudio e vídeo imediatamente + retry
+              function muteAll() {
+                try { ZoomMtg.mute({ mute: true }); } catch(e) {}
+                try { ZoomMtg.muteVideo({ mute: true }); } catch(e) {}
+
+                // Clicar em qualquer botão de "Join Audio" / fechar dialogs
+                document.querySelectorAll('.join-audio-by-voip, .join-audio-container .btn, [data-type="Computer Audio"], .join-dialog .btn-primary, .audio-option-menu__pop-menu button').forEach(btn => {
+                  try { btn.click(); } catch(e) {}
+                });
+
+                // Fechar dialogs/popups
+                document.querySelectorAll('.zm-modal-footer-default-actions .zm-btn--primary, .leave-meeting-dialog .btn-primary').forEach(btn => {
+                  try { btn.click(); } catch(e) {}
+                });
+              }
+
+              // Mutar imediatamente e repetir a cada 2s por 20s (para pegar popups tardios)
+              muteAll();
+              let muteRetries = 0;
+              const muteInterval = setInterval(() => {
+                muteAll();
+                muteRetries++;
+                if (muteRetries >= 10) clearInterval(muteInterval);
+              }, 2000);
 
               const pollInterval = config.pollIntervalMs || 5000;
               setInterval(pollParticipants, pollInterval);

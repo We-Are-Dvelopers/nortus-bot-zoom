@@ -160,6 +160,9 @@ class ZoomBot {
       this.status = 'connected';
       this.log.info('Bot conectado à reunião');
 
+      // Clicar em "Join Audio by Computer" e mutar via Puppeteer
+      await this.muteBot();
+
       this.startEventDrain();
       this.startHeartbeat();
 
@@ -246,6 +249,42 @@ class ZoomBot {
   }
 
   // ──── Internos ────
+
+  async muteBot() {
+    if (!this.page) return;
+    try {
+      // Esperar um pouco para o SDK renderizar os botões
+      await new Promise(r => setTimeout(r, 3000));
+
+      // Clicar no botão "Join Audio by Computer" se aparecer
+      await this.page.evaluate(() => {
+        // Tentar vários seletores comuns do SDK
+        const selectors = [
+          '.join-audio-by-voip',
+          'button[data-type="Computer Audio"]',
+          '.join-audio-container button',
+          '.join-dialog .btn-primary',
+          '#voip-tab',
+        ];
+        for (const sel of selectors) {
+          const btn = document.querySelector(sel);
+          if (btn) { btn.click(); break; }
+        }
+      });
+
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Mutar áudio e vídeo
+      await this.page.evaluate(() => {
+        try { ZoomMtg.mute({ mute: true }); } catch(e) {}
+        try { ZoomMtg.muteVideo({ mute: true }); } catch(e) {}
+      });
+
+      this.log.info('Bot mutado (áudio + vídeo)');
+    } catch (err) {
+      this.log.warn(`Erro ao mutar bot: ${err.message}`);
+    }
+  }
 
   async getBotStatus() {
     if (!this.page) return 'no_page';
