@@ -75,7 +75,6 @@ class ZoomBot {
           '--no-first-run',
           // Permissões de mídia
           '--use-fake-ui-for-media-stream',
-          '--use-fake-device-for-media-stream',
           '--autoplay-policy=no-user-gesture-required',
           // Mínimo de flags - não bloquear rede/WebSocket
           '--disable-extensions',
@@ -253,31 +252,35 @@ class ZoomBot {
   async muteBot() {
     if (!this.page) return;
     try {
-      // Esperar um pouco para o SDK renderizar os botões
-      await new Promise(r => setTimeout(r, 3000));
-
-      // Clicar no botão "Join Audio by Computer" se aparecer
+      // Tentar mutar imediatamente
       await this.page.evaluate(() => {
-        // Tentar vários seletores comuns do SDK
+        try { ZoomMtg.mute({ mute: true }); } catch(e) {}
+        try { ZoomMtg.muteVideo({ mute: true }); } catch(e) {}
+      });
+
+      // Esperar SDK renderizar e tentar de novo
+      await new Promise(r => setTimeout(r, 2000));
+
+      await this.page.evaluate(() => {
+        // Clicar em botões de áudio se aparecerem
         const selectors = [
           '.join-audio-by-voip',
           'button[data-type="Computer Audio"]',
           '.join-audio-container button',
           '.join-dialog .btn-primary',
-          '#voip-tab',
         ];
         for (const sel of selectors) {
           const btn = document.querySelector(sel);
           if (btn) { btn.click(); break; }
         }
-      });
 
-      await new Promise(r => setTimeout(r, 1000));
-
-      // Mutar áudio e vídeo
-      await this.page.evaluate(() => {
+        // Forçar mute de novo
         try { ZoomMtg.mute({ mute: true }); } catch(e) {}
         try { ZoomMtg.muteVideo({ mute: true }); } catch(e) {}
+
+        // Clicar no botão de parar vídeo se existir
+        const stopVideoBtn = document.querySelector('.send-video-container__btn--stop-video, .footer-button__stop-video, button[aria-label="stop sending my video"]');
+        if (stopVideoBtn) stopVideoBtn.click();
       });
 
       this.log.info('Bot mutado (áudio + vídeo)');
