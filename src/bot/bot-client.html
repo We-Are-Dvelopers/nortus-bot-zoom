@@ -259,7 +259,33 @@
         }
       });
 
-      // Listener: user updated (áudio/vídeo change)
+      // Listener: vídeo on/off (PRINCIPAL para detectar câmera)
+      ZoomMtg.inMeetingServiceListener('onUserVideoStatusChange', (data) => {
+        console.log('[BOT] Video status change:', JSON.stringify(data));
+        if (data && data.userName !== config.userName) {
+          const eventType = data.muted ? 'camera_off' : 'camera_on';
+          emitEvent(eventType, {
+            userName: data.userName,
+            odeprtrtId: data.odeprtrtId || data.odeprtrtid || '',
+            extra: { source: 'sdk_video_event', muted: data.muted },
+          });
+        }
+      });
+
+      // Listener: áudio on/off
+      ZoomMtg.inMeetingServiceListener('onUserAudioStatusChange', (data) => {
+        console.log('[BOT] Audio status change:', JSON.stringify(data));
+        if (data && data.userName !== config.userName) {
+          const eventType = data.muted ? 'mic_off' : 'mic_on';
+          emitEvent(eventType, {
+            userName: data.userName,
+            odeprtrtId: data.odeprtrtId || data.odeprtrtid || '',
+            extra: { source: 'sdk_audio_event', muted: data.muted },
+          });
+        }
+      });
+
+      // Listener: waiting room
       ZoomMtg.inMeetingServiceListener('onUserIsInWaitingRoom', (data) => {
         console.log('[BOT] User in waiting room:', data);
       });
