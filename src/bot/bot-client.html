@@ -186,6 +186,7 @@
         success: () => {
           log('SDK inicializado. Entrando na reunião...');
 
+          log('Chamando ZoomMtg.join...');
           ZoomMtg.join({
             meetingNumber: config.meetingNumber,
             userName: config.userName,
@@ -193,30 +194,28 @@
             sdkKey: config.sdkKey,
             userEmail: config.userEmail || '',
             passWord: config.password || '',
-            success: () => {
-              log(`Conectado à reunião ${config.meetingNumber}`);
+            success: (res) => {
+              log(`Conectado à reunião ${config.meetingNumber} - ${JSON.stringify(res)}`);
               window.__BOT_STATUS__ = 'connected';
 
-              // Emitir evento de meeting_started (do ponto de vista do bot)
               emitEvent('meeting_started', {
                 extra: { bot_joined: true },
               });
 
-              // Mutar mic e desligar câmera do bot
               try {
                 ZoomMtg.mute({ mute: true });
                 ZoomMtg.muteVideo({ mute: true });
               } catch (e) { /* ignore */ }
 
-              // Iniciar polling de participantes
               const pollInterval = config.pollIntervalMs || 5000;
               setInterval(pollParticipants, pollInterval);
-
-              // Primeiro poll após 3 segundos (dar tempo da lista carregar)
               setTimeout(pollParticipants, 3000);
             },
             error: (err) => {
-              log(`Erro ao entrar na reunião: ${JSON.stringify(err)}`);
+              const errStr = JSON.stringify(err);
+              log(`Erro ao entrar na reunião: ${errStr}`);
+              console.log('[BOT] Error join details:', errStr);
+              window.__BOT_ERRORS__.push(`join_error: ${errStr}`);
               window.__BOT_STATUS__ = 'error';
             },
           });
