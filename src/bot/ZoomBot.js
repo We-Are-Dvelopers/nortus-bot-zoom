@@ -1,14 +1,43 @@
 const puppeteer = require('puppeteer');
 const path = require('path');
+const http = require('http');
+const fs = require('fs');
 const config = require('../config');
 const SignatureGenerator = require('../services/SignatureGenerator');
 const logger = require('../services/logger');
 
+// Servidor HTTP local para servir o bot-client.html
+// (file:// bloqueia scripts de CDN por política de segurança)
+let localServer = null;
+let localServerPort = 0;
+
+function ensureLocalServer() {
+  return new Promise((resolve, reject) => {
+    if (localServer) {
+      return resolve(localServerPort);
+    }
+
+    const botHtmlPath = path.join(__dirname, 'bot-client.html');
+    const htmlContent = fs.readFileSync(botHtmlPath, 'utf-8');
+
+    localServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(htmlContent);
+    });
+
+    localServer.listen(0, '127.0.0.1', () => {
+      localServerPort = localServer.address().port;
+      logger.info(`Local HTML server rodando em http://127.0.0.1:${localServerPort}`);
+      resolve(localServerPort);
+    });
+
+    localServer.on('error', reject);
+  });
+}
+
 /**
  * ZoomBot - Uma instância de bot que entra em uma reunião Zoom via Puppeteer
  * e monitora o estado de câmera/mic dos participantes.
- *
- * Ciclo de vida: create -> join -> (monitorando) -> leave -> destroy
  */
 class ZoomBot {
   constructor(meetingNumber, eventSender) {
@@ -17,16 +46,13 @@ class ZoomBot {
     this.botId = `bot-${meetingNumber}-${Date.now()}`;
     this.browser = null;
     this.page = null;
-    this.status = 'idle'; // idle, joining, connected, leaving, stopped, error
+    this.status = 'idle';
     this.heartbeatTimer = null;
     this.eventDrainTimer = null;
     this.startedAt = null;
     this.log = logger.child({ botId: this.botId, meeting: meetingNumber });
   }
 
-  /**
-   * Inicia o bot: abre browser headless, carrega SDK, entra na reunião.
-   */
   async join() {
     if (this.status !== 'idle') {
       throw new Error(`Bot ${this.botId} não está idle (status: ${this.status})`);
@@ -37,10 +63,8 @@ class ZoomBot {
     this.log.info('Iniciando bot...');
 
     try {
-      // Gerar signature para o Meeting SDK
       const signature = SignatureGenerator.generate(this.meetingNumber, 0);
 
-      // Lançar Puppeteer
       this.browser = await puppeteer.launch({
         headless: 'new',
         args: [
@@ -51,11 +75,9 @@ class ZoomBot {
           '--no-first-run',
           '--no-zygote',
           '--single-process',
-          // Permissões de mídia (o bot não usa camera/mic, mas o SDK precisa)
           '--use-fake-ui-for-media-stream',
           '--use-fake-device-for-media-stream',
           '--autoplay-policy=no-user-gesture-required',
-          // Desabilitar extensões e features desnecessárias
           '--disable-extensions',
           '--disable-background-networking',
           '--disable-background-timer-throttling',
@@ -76,17 +98,42 @@ class ZoomBot {
       });
 
       this.page = await this.browser.newPage();
-
-      // Configurar viewport mínimo (bot não precisa de UI grande)
       await this.page.setViewport({ width: 800, height: 600 });
 
-      // Dar permissão de mídia (necessário para o SDK)
-      const context = this.browser.defaultBrowserContext();
-      await context.overridePermissions('file://', ['microphone', 'camera']);
+      // Capturar TODOS os logs do console do browser
+      this.page.on('console', (msg) => {
+        const text = msg.text();
+        if (text.includes('[BOT]') || text.includes('Error') || text.includes('error')) {
+          this.log.info(`[BROWSER] ${text}`);
+        }
+      });
 
-      // Carregar a página do bot
-      const botHtmlPath = path.join(__dirname, 'bot-client.html');
-      await this.page.goto(`file://${botHtmlPath}`, { waitUntil: 'networkidle0', timeout: 30000 });
+      // Capturar erros de página
+      this.page.on('pageerror', (err) => {
+        this.log.error(`[BROWSER ERROR] ${err.message}`);
+      });
+
+      // Capturar requests que falharam
+      this.page.on('requestfailed', (req) => {
+        this.log.warn(`[BROWSER] Request falhou: ${req.url()} - ${req.failure()?.errorText}`);
+      });
+
+      // Dar permissão de mídia
+      const context = this.browser.defaultBrowserContext();
+      await context.overridePermissions('http://127.0.0.1', ['microphone', 'camera']);
+
+      // Servir o HTML via HTTP local (file:// bloqueia CDN scripts)
+      const port = await ensureLocalServer();
+      this.log.info(`Carregando bot page de http://127.0.0.1:${port}`);
+      await this.page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 30000 });
+
+      // Verificar se o SDK carregou
+      const sdkLoaded = await this.page.evaluate(() => typeof ZoomMtg !== 'undefined');
+      this.log.info(`SDK carregado: ${sdkLoaded}`);
+
+      if (!sdkLoaded) {
+        throw new Error('Zoom Meeting SDK não carregou - verifique conexão com CDN');
+      }
 
       // Injetar configuração
       await this.page.evaluate((cfg) => {
@@ -103,20 +150,26 @@ class ZoomBot {
 
       this.log.info('Config injetada, aguardando conexão com a reunião...');
 
-      // Aguardar o bot conectar (máximo 60 segundos)
-      const connected = await this.waitForStatus('connected', 60000);
+      // Aguardar o bot conectar (máximo 90 segundos)
+      const connected = await this.waitForStatus('connected', 90000);
       if (!connected) {
         const currentStatus = await this.getBotStatus();
-        throw new Error(`Bot não conectou após 60s (status: ${currentStatus})`);
+        // Capturar estado da página para debug
+        const pageStatus = await this.page.evaluate(() => {
+          return {
+            botStatus: window.__BOT_STATUS__,
+            statusText: document.getElementById('status')?.textContent,
+            errors: window.__BOT_ERRORS__ || [],
+          };
+        }).catch(() => ({}));
+        this.log.error(`Debug page state: ${JSON.stringify(pageStatus)}`);
+        throw new Error(`Bot não conectou após 90s (status: ${currentStatus})`);
       }
 
       this.status = 'connected';
       this.log.info('Bot conectado à reunião');
 
-      // Iniciar drenagem de eventos
       this.startEventDrain();
-
-      // Iniciar heartbeat
       this.startHeartbeat();
 
       return true;
@@ -128,18 +181,13 @@ class ZoomBot {
     }
   }
 
-  /**
-   * Sai da reunião e fecha o browser.
-   */
   async leave() {
     if (this.status === 'stopped' || this.status === 'idle') return;
 
     this.status = 'leaving';
     this.log.info('Saindo da reunião...');
 
-    // Drenar eventos restantes antes de sair
     await this.drainEvents();
-
     this.stopHeartbeat();
     this.stopEventDrain();
 
@@ -156,9 +204,6 @@ class ZoomBot {
     this.log.info('Bot desconectado');
   }
 
-  /**
-   * Fecha o browser e limpa recursos.
-   */
   async destroy() {
     this.stopHeartbeat();
     this.stopEventDrain();
@@ -175,9 +220,6 @@ class ZoomBot {
     this.page = null;
   }
 
-  /**
-   * Drena eventos do buffer do browser e envia para o backend.
-   */
   async drainEvents() {
     if (!this.page || this.status === 'stopped') return;
 
@@ -197,9 +239,6 @@ class ZoomBot {
     }
   }
 
-  /**
-   * Retorna informações de status do bot.
-   */
   async getInfo() {
     const participants = this.page
       ? await this.page.evaluate(() => window.__BOT_PARTICIPANTS__ || {}).catch(() => ({}))
@@ -271,10 +310,6 @@ class ZoomBot {
     }
   }
 
-  /**
-   * Monitora se a reunião foi encerrada (pelo host).
-   * Chamado periodicamente pelo BotManager.
-   */
   async checkMeetingEnded() {
     if (!this.page || this.status !== 'connected') return false;
 
@@ -282,11 +317,10 @@ class ZoomBot {
       const botStatus = await this.getBotStatus();
       if (botStatus === 'meeting_ended') {
         this.log.info('Reunião encerrada detectada');
-        await this.drainEvents(); // Drenar eventos finais
+        await this.drainEvents();
         return true;
       }
     } catch (e) {
-      // Page pode ter sido fechada
       return true;
     }
 

@@ -263,9 +263,17 @@
       });
     }
 
+    // Capturar erros globais
+    window.__BOT_ERRORS__ = [];
+    window.onerror = function(msg, url, line) {
+      window.__BOT_ERRORS__.push(`${msg} at ${url}:${line}`);
+      console.log('[BOT] Error:', msg);
+    };
+
     // Iniciar
     initBot().catch(err => {
       log(`Erro fatal: ${err.message}`);
+      window.__BOT_ERRORS__.push(err.message);
       window.__BOT_STATUS__ = 'error';
     });
   </script>
