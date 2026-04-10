@@ -4,6 +4,9 @@ module.exports = {
   zoom: {
     sdkKey: process.env.ZOOM_SDK_KEY,
     sdkSecret: process.env.ZOOM_SDK_SECRET,
+    s2sAccountId: process.env.ZOOM_S2S_ACCOUNT_ID,
+    s2sClientId: process.env.ZOOM_S2S_CLIENT_ID,
+    s2sClientSecret: process.env.ZOOM_S2S_CLIENT_SECRET,
   },
   api: {
     baseUrl: process.env.API_BASE_URL || 'http://localhost:9000',

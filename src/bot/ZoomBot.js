@@ -21,13 +21,7 @@ function ensureLocalServer() {
     const htmlContent = fs.readFileSync(botHtmlPath, 'utf-8');
 
     localServer = http.createServer((req, res) => {
-      // Headers COOP/COEP para habilitar SharedArrayBuffer
-      // Necessário para o SDK renderizar vídeo dos participantes
-      res.writeHead(200, {
-        'Content-Type': 'text/html',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      });
+      res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(htmlContent);
     });
 
@@ -77,14 +71,10 @@ class ZoomBot {
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
+          '--disable-gpu',
           '--no-first-run',
-          // Software WebGL para WASM video modules (SharedArrayBuffer)
-          '--enable-unsafe-swiftshader',
-          '--enable-webgl',
-          // Permissões de mídia
           '--use-fake-ui-for-media-stream',
           '--autoplay-policy=no-user-gesture-required',
-          // Mínimo de flags
           '--disable-extensions',
           '--disable-popup-blocking',
           '--mute-audio',

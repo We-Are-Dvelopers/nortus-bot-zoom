@@ -2,6 +2,7 @@ const express = require('express');
 const config = require('./config');
 const BotManager = require('./bot/BotManager');
 const EventSender = require('./services/EventSender');
+const ZoomApiPoller = require('./services/ZoomApiPoller');
 const logger = require('./services/logger');
 
 const app = express();
@@ -10,6 +11,7 @@ app.use(express.json());
 // ── Instâncias globais ──
 const eventSender = new EventSender();
 const botManager = new BotManager(eventSender);
+const zoomApiPoller = new ZoomApiPoller(eventSender);
 
 // ── Middleware de autenticação ──
 function authMiddleware(req, res, next) {
@@ -36,6 +38,8 @@ app.post('/bots', authMiddleware, async (req, res) => {
 
     logger.info(`API: Requisição para criar bot na meeting ${meeting_number}`);
     const info = await botManager.addBot(meeting_number);
+    // Iniciar polling de câmera via Zoom API em paralelo
+    zoomApiPoller.startPolling(meeting_number);
     res.status(201).json(info);
   } catch (err) {
     logger.error(`API: Erro ao criar bot: ${err.message}`);
@@ -50,6 +54,7 @@ app.post('/bots', authMiddleware, async (req, res) => {
 app.delete('/bots/:meetingNumber', authMiddleware, async (req, res) => {
   try {
     const removed = await botManager.removeBot(req.params.meetingNumber);
+    zoomApiPoller.stopPolling(req.params.meetingNumber);
     if (!removed) {
       return res.status(404).json({ error: 'Bot não encontrado para esta reunião' });
     }
@@ -122,6 +127,7 @@ async function shutdown(signal) {
 
   try {
     await eventSender.shutdown();
+    zoomApiPoller.shutdown();
     await botManager.shutdown();
     logger.info('Shutdown completo');
     process.exit(0);
