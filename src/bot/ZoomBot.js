@@ -77,12 +77,14 @@ class ZoomBot {
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-gpu',
           '--no-first-run',
+          // Software WebGL para WASM video modules (SharedArrayBuffer)
+          '--enable-unsafe-swiftshader',
+          '--enable-webgl',
           // Permissões de mídia
           '--use-fake-ui-for-media-stream',
           '--autoplay-policy=no-user-gesture-required',
-          // Mínimo de flags - não bloquear rede/WebSocket
+          // Mínimo de flags
           '--disable-extensions',
           '--disable-popup-blocking',
           '--mute-audio',
@@ -302,11 +304,14 @@ class ZoomBot {
 
   async waitForStatus(target, timeoutMs) {
     const start = Date.now();
+    let sawConnected = false;
     while (Date.now() - start < timeoutMs) {
       const status = await this.getBotStatus();
       if (status === target) return true;
+      if (status === 'connected') sawConnected = true;
       if (status === 'error') return false;
-      if (status === 'meeting_ended') return false;
+      // Só tratar meeting_ended como falha se nunca conectou
+      if (status === 'meeting_ended' && !sawConnected && (Date.now() - start > 30000)) return false;
       await new Promise(r => setTimeout(r, 1000));
     }
     return false;
