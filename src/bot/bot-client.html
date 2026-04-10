@@ -8,10 +8,8 @@
   <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/bootstrap.css" />
   <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/react-select.css" />
   <style>
-    /* Esconder toda UI do Zoom - bot é headless */
-    body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-    #zmmtg-root { display: none !important; }
-    .meeting-app { display: none !important; }
+    /* Bot headless - deixar SDK renderizar normalmente */
+    body { margin: 0; padding: 0; background: #000; }
     #status {
       color: #0f0; font-family: monospace; font-size: 12px;
       padding: 10px; position: fixed; top: 0; left: 0; z-index: 99999;
