@@ -163,13 +163,13 @@
 
       ZoomMtg.init({
         leaveUrl: 'about:blank',
-        isSupportAV: true,
+        isSupportAV: false,
         disableInvite: true,
         disableRecord: true,
-        disableJoinAudio: false,
+        disableJoinAudio: true,
         audioPanelAlwaysOpen: false,
         showMeetingHeader: false,
-        disableVoIP: false,
+        disableVoIP: true,
         disableReport: true,
         screenShare: false,
         videoDrag: false,
@@ -181,6 +181,8 @@
         isSupportPolling: false,
         isSupportBreakout: false,
         isSupportCC: false,
+        isSupportNonverbal: false,
+        isSupportLiveTranscription: false,
         success: () => {
           log('SDK inicializado. Entrando na reunião...');
 

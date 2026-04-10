@@ -90,9 +90,7 @@ class ZoomBot {
       // Capturar TODOS os logs do console do browser
       this.page.on('console', (msg) => {
         const text = msg.text();
-        if (text.includes('[BOT]') || text.includes('Error') || text.includes('error')) {
-          this.log.info(`[BROWSER] ${text}`);
-        }
+        this.log.info(`[BROWSER ${msg.type()}] ${text}`);
       });
 
       // Capturar erros de página
@@ -147,9 +145,15 @@ class ZoomBot {
             botStatus: window.__BOT_STATUS__,
             statusText: document.getElementById('status')?.textContent,
             errors: window.__BOT_ERRORS__ || [],
+            bodyHTML: document.body.innerHTML.substring(0, 2000),
           };
         }).catch(() => ({}));
         this.log.error(`Debug page state: ${JSON.stringify(pageStatus)}`);
+        // Screenshot para debug visual
+        try {
+          await this.page.screenshot({ path: `/tmp/zoom-bot-debug-${this.meetingNumber}.png`, fullPage: true });
+          this.log.info(`Screenshot salvo em /tmp/zoom-bot-debug-${this.meetingNumber}.png`);
+        } catch (e) { /* ignore */ }
         throw new Error(`Bot não conectou após 90s (status: ${currentStatus})`);
       }
 
