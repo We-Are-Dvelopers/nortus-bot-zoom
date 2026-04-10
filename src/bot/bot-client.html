@@ -163,16 +163,11 @@
 
       ZoomMtg.init({
         leaveUrl: 'about:blank',
-        disableInvite: true,
-        disableRecord: true,
-        showMeetingHeader: false,
-        disableReport: true,
-        screenShare: false,
+        patchJsMedia: true,
+        leaveOnPageUnload: true,
+        enableHD: false,
+        enableFullHD: false,
         videoDrag: false,
-        isSupportChat: false,
-        isSupportQA: false,
-        isSupportBreakout: false,
-        isSupportCC: false,
         success: () => {
           log('SDK inicializado. Entrando na reunião...');
 
@@ -184,6 +179,8 @@
             sdkKey: config.sdkKey,
             userEmail: config.userEmail || '',
             passWord: config.password || '',
+            tk: '',
+            zak: '',
             success: (res) => {
               log(`Conectado à reunião ${config.meetingNumber} - ${JSON.stringify(res)}`);
               window.__BOT_STATUS__ = 'connected';
