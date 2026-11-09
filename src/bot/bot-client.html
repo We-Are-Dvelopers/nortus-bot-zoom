@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Zoom Presence Bot</title>
   <!-- Zoom Meeting SDK CSS -->
-  <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/bootstrap.css" />
-  <link type="text/css" rel="stylesheet" href="https://source.zoom.us/3.11.2/css/react-select.css" />
   <style>
     /* Bot headless - deixar SDK renderizar normalmente */
     body { margin: 0; padding: 0; background: #000; }
@@ -20,12 +18,12 @@
   <div id="status">Bot initializing...</div>
 
   <!-- Zoom Meeting SDK JS -->
-  <script src="https://source.zoom.us/3.11.2/lib/vendor/react.min.js"></script>
-  <script src="https://source.zoom.us/3.11.2/lib/vendor/react-dom.min.js"></script>
-  <script src="https://source.zoom.us/3.11.2/lib/vendor/redux.min.js"></script>
-  <script src="https://source.zoom.us/3.11.2/lib/vendor/redux-thunk.min.js"></script>
-  <script src="https://source.zoom.us/3.11.2/lib/vendor/lodash.min.js"></script>
-  <script src="https://source.zoom.us/zoom-meeting-3.11.2.min.js"></script>
+  <script src="https://source.zoom.us/6.10.0/lib/vendor/react.min.js"></script>
+  <script src="https://source.zoom.us/6.10.0/lib/vendor/react-dom.min.js"></script>
+  <script src="https://source.zoom.us/6.10.0/lib/vendor/redux.min.js"></script>
+  <script src="https://source.zoom.us/6.10.0/lib/vendor/redux-thunk.min.js"></script>
+  <script src="https://source.zoom.us/6.10.0/lib/vendor/lodash.min.js"></script>
+  <script src="https://source.zoom.us/zoom-meeting-6.10.0.min.js"></script>
 
   <script>
     /**
@@ -181,7 +179,7 @@
 
       log(`Inicializando SDK para meeting ${config.meetingNumber}...`);
 
-      ZoomMtg.setZoomJSLib('https://source.zoom.us/3.11.2/lib', '/av');
+      ZoomMtg.setZoomJSLib('https://source.zoom.us/6.10.0/lib', '/av');
       ZoomMtg.preLoadWasm();
       ZoomMtg.prepareWebSDK();
 
